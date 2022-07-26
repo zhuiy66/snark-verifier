@@ -26,7 +26,8 @@ mod kzg;
 
 pub use circuit::{
     maingate::{
-        MainGateWithPlookup, MainGateWithPlookupConfig, MainGateWithRange, MainGateWithRangeConfig,
+        MainGateWithPlookupRange, MainGateWithPlookupRangeConfig, MainGateWithRange,
+        MainGateWithRangeConfig,
     },
     standard::StandardPlonk,
 };
