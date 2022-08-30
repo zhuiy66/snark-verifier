@@ -23,6 +23,7 @@ poseidon = { git = "https://github.com/privacy-scaling-explorations/poseidon", b
 # evm
 ethereum_types = { package = "ethereum-types", version = "0.13.1", default-features = false, features = ["std"], optional = true }
 sha3 = { version = "0.10.1", optional = true }
+hex = "0.4.3"
 
 [dev-dependencies]
 paste = "1.0.7"

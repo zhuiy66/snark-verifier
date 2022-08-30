@@ -1,5 +1,5 @@
 use crate::{
-    loader::evm::loader::{EvmLoader, Scalar},
+    loader::evm::loader2::{EvmLoader, Scalar},
     protocol::Protocol,
     scheme::kzg::{AccumulationStrategy, Accumulator, SameCurveAccumulation, MSM},
     util::{Curve, Itertools, PrimeCurveAffine, PrimeField, Transcript, UncompressedEncoding},

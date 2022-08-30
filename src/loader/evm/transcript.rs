@@ -18,34 +18,6 @@ use std::{
     rc::Rc,
 };
 
-pub struct MemoryChunk {
-    ptr: usize,
-    len: usize,
-}
-
-impl MemoryChunk {
-    fn new(ptr: usize) -> Self {
-        Self { ptr, len: 0x20 }
-    }
-
-    fn reset(&mut self, ptr: usize) {
-        self.ptr = ptr;
-        self.len = 0x20;
-    }
-
-    fn include(&self, ptr: usize, size: usize) -> bool {
-        let range = self.ptr..=self.ptr + self.len;
-        range.contains(&ptr) && range.contains(&(ptr + size))
-    }
-
-    fn extend(&mut self, ptr: usize, size: usize) {
-        if !self.include(ptr, size) {
-            assert_eq!(self.ptr + self.len, ptr);
-            self.len += size;
-        }
-    }
-}
-
 pub struct EvmTranscript<C: Curve, L: Loader<C>, S, B> {
     loader: L,
     stream: S,
@@ -53,58 +25,46 @@ pub struct EvmTranscript<C: Curve, L: Loader<C>, S, B> {
     _marker: PhantomData<C>,
 }
 
-impl<C> EvmTranscript<C, Rc<EvmLoader>, usize, MemoryChunk>
+impl<C> EvmTranscript<C, Rc<EvmLoader>, usize, Vec<Value>>
 where
     C: Curve + UncompressedEncoding<Uncompressed = [u8; 64]>,
     C::Scalar: PrimeField<Repr = [u8; 32]>,
 {
     pub fn new(loader: Rc<EvmLoader>) -> Self {
-        let ptr = loader.allocate(0x20);
-        assert_eq!(ptr, 0);
         Self {
             loader,
             stream: 0,
-            buf: MemoryChunk::new(ptr),
+            buf: Vec::new(),
             _marker: PhantomData,
         }
     }
 }
 
-impl<C> Transcript<C, Rc<EvmLoader>> for EvmTranscript<C, Rc<EvmLoader>, usize, MemoryChunk>
+impl<C> Transcript<C, Rc<EvmLoader>> for EvmTranscript<C, Rc<EvmLoader>, usize, Vec<Value>>
 where
     C: Curve + UncompressedEncoding<Uncompressed = [u8; 64]>,
     C::Scalar: PrimeField<Repr = [u8; 32]>,
 {
     fn squeeze_challenge(&mut self) -> Scalar {
-        let (ptr, scalar) = self.loader.squeeze_challenge(self.buf.ptr, self.buf.len);
-        self.buf.reset(ptr);
-        scalar
+        self.loader.squeeze_challenge(self.buf.drain(..).collect())
     }
 
     fn common_ec_point(&mut self, ec_point: &EcPoint) -> Result<(), Error> {
-        if let Value::Memory(ptr) = ec_point.value() {
-            self.buf.extend(ptr, 0x40);
-        } else {
-            unreachable!()
-        }
+        self.buf.extend([ec_point.x(), ec_point.y()]);
         Ok(())
     }
 
     fn common_scalar(&mut self, scalar: &Scalar) -> Result<(), Error> {
-        match scalar.value() {
-            Value::Constant(_) if self.buf.ptr == 0 => {
-                self.loader.copy_scalar(scalar, self.buf.ptr);
-            }
-            Value::Memory(ptr) => {
-                self.buf.extend(ptr, 0x20);
-            }
-            _ => unreachable!(),
+        if self.stream == 0 {
+            self.loader.set_transcript_state(scalar.value());
+        } else {
+            self.buf.push(scalar.value());
         }
         Ok(())
     }
 }
 
-impl<C> TranscriptRead<C, Rc<EvmLoader>> for EvmTranscript<C, Rc<EvmLoader>, usize, MemoryChunk>
+impl<C> TranscriptRead<C, Rc<EvmLoader>> for EvmTranscript<C, Rc<EvmLoader>, usize, Vec<Value>>
 where
     C: Curve + UncompressedEncoding<Uncompressed = [u8; 64]>,
     C::Scalar: PrimeField<Repr = [u8; 32]>,

@@ -7,7 +7,9 @@ use std::iter;
 
 mod accumulation;
 mod code;
-mod loader;
+// mod loader;
+mod loader2;
+use loader2 as loader;
 mod transcript;
 
 #[cfg(test)]
