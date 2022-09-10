@@ -12,6 +12,10 @@ rand = "0.8"
 rand_chacha = "0.3.1"
 halo2_curves = { git = "https://github.com/privacy-scaling-explorations/halo2curves", tag = "0.2.1", package = "halo2curves" }
 
+# system_circom
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0.85", optional = true }
+
 # system_halo2
 halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2", tag = "v2022_08_19", optional = true }
 
@@ -36,11 +40,12 @@ crossterm = { version = "0.22.1" }
 tui = { version = "0.16.0", default-features = false, features = ["crossterm"] }
 
 [features]
-default = ["loader_evm", "loader_halo2", "system_halo2"]
+default = ["loader_evm", "loader_halo2", "system_circom", "system_halo2"]
 
 loader_evm = ["dep:ethereum_types", "dep:sha3"]
 loader_halo2 = ["dep:halo2_proofs", "dep:halo2_wrong_ecc", "dep:halo2_wrong_transcript", "dep:poseidon"]
 
+system_circom = ["dep:serde", "dep:serde_json"]
 system_halo2 = ["dep:halo2_proofs"]
 
 sanity-check = []
