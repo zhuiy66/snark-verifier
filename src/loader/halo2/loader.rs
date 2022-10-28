@@ -319,6 +319,13 @@ impl<'a, C: CurveAffine, EccChip: EccInstructions<'a, C>> Scalar<'a, C, EccChip>
         &self.loader
     }
 
+    pub fn into_assigned(self) -> EccChip::AssignedScalar {
+        match self.value.into_inner() {
+            Value::Constant(constant) => self.loader.assign_const_scalar(constant),
+            Value::Assigned(assigned) => assigned,
+        }
+    }
+
     pub fn assigned(&self) -> Ref<EccChip::AssignedScalar> {
         if let Some(constant) = self.maybe_const() {
             *self.value.borrow_mut() = Value::Assigned(self.loader.assign_const_scalar(constant))
