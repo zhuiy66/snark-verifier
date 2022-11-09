@@ -27,8 +27,8 @@ use plonk_verifier::{
 use rand::rngs::OsRng;
 use std::{io::Cursor, rc::Rc};
 
-const LIMBS: usize = 4;
-const BITS: usize = 68;
+const LIMBS: usize = 3;
+const BITS: usize = 88;
 
 type Pcs = Kzg<Bn256, Gwc19>;
 type As = KzgAs<Pcs>;
@@ -163,12 +163,15 @@ mod application {
 
 mod aggregation {
     use super::{As, Plonk, BITS, LIMBS};
+    use halo2_base::{AssignedValue, Context, ContextParams};
     use halo2_curves::bn256::{Bn256, Fq, Fr, G1Affine};
+    use halo2_ecc::{ecc::EccChip, fields::fp::FpStrategy};
     use halo2_proofs::{
-        circuit::{Layouter, SimpleFloorPlanner, Value},
-        plonk::{self, Circuit, ConstraintSystem, Error},
+        circuit::{Cell, Layouter, Region, SimpleFloorPlanner, Value},
+        plonk::{self, Circuit, Column, ConstraintSystem, Instance},
         poly::{commitment::ParamsProver, kzg::commitment::ParamsKZG},
     };
+    /*
     use halo2_wrong_ecc::{
         integer::rns::Rns,
         maingate::{
@@ -177,11 +180,12 @@ mod aggregation {
         },
         EccConfig,
     };
+    */
     use itertools::Itertools;
     use plonk_verifier::{
         loader::{self, native::NativeLoader},
         pcs::{
-            kzg::{KzgAccumulator, KzgSuccinctVerifyingKey, LimbsEncodingInstructions},
+            kzg::{KzgAccumulator, KzgSuccinctVerifyingKey},
             AccumulationScheme, AccumulationSchemeProver,
         },
         system,
@@ -190,7 +194,7 @@ mod aggregation {
         Protocol,
     };
     use rand::rngs::OsRng;
-    use std::rc::Rc;
+    use std::{fs::File, iter, rc::Rc};
 
     const T: usize = 5;
     const RATE: usize = 4;
@@ -198,8 +202,10 @@ mod aggregation {
     const R_P: usize = 60;
 
     type Svk = KzgSuccinctVerifyingKey<G1Affine>;
-    type BaseFieldEccChip = halo2_wrong_ecc::BaseFieldEccChip<G1Affine, LIMBS, BITS>;
-    type Halo2Loader<'a> = loader::halo2::Halo2Loader<'a, G1Affine, BaseFieldEccChip>;
+    type BaseFieldEccChip<'b> = halo2_ecc::ecc::BaseFieldEccChip<'b, G1Affine>;
+    type Halo2Loader<'a, 'b> = loader::halo2::Halo2Loader<'a, G1Affine, BaseFieldEccChip<'b>>;
+    // type BaseFieldEccChip = halo2_wrong_ecc::BaseFieldEccChip<G1Affine, LIMBS, BITS>;
+    // type Halo2Loader<'a> = loader::halo2::Halo2Loader<'a, G1Affine, BaseFieldEccChip>;
     pub type PoseidonTranscript<L, S> =
         system::halo2::transcript::halo2::PoseidonTranscript<G1Affine, L, S, T, RATE, R_F, R_P>;
 
@@ -258,12 +264,12 @@ mod aggregation {
         }
     }
 
-    pub fn aggregate<'a>(
+    pub fn aggregate<'a, 'b>(
         svk: &Svk,
-        loader: &Rc<Halo2Loader<'a>>,
+        loader: &Rc<Halo2Loader<'a, 'b>>,
         snarks: &[SnarkWitness],
         as_proof: Value<&'_ [u8]>,
-    ) -> KzgAccumulator<G1Affine, Rc<Halo2Loader<'a>>> {
+    ) -> KzgAccumulator<G1Affine, Rc<Halo2Loader<'a, 'b>>> {
         let assign_instances = |instances: &[Vec<Value<Fr>>]| {
             instances
                 .iter()
@@ -298,40 +304,62 @@ mod aggregation {
         acccumulator
     }
 
+    pub struct AggregationConfigParams {
+        pub strategy: halo2_ecc::fields::fp::FpStrategy,
+        pub degree: u32,
+        pub num_advice: usize,
+        pub num_lookup_advice: usize,
+        pub num_fixed: usize,
+        pub lookup_bits: usize,
+        pub limb_bits: usize,
+        pub num_limbs: usize,
+    }
+
     #[derive(Clone)]
     pub struct AggregationConfig {
-        main_gate_config: MainGateConfig,
-        range_config: RangeConfig,
+        pub base_field_config: halo2_ecc::fields::fp::FpConfig<Fr, Fq>,
+        pub instance: Column<Instance>,
     }
 
     impl AggregationConfig {
-        pub fn configure<F: FieldExt>(
-            meta: &mut ConstraintSystem<F>,
-            composition_bits: Vec<usize>,
-            overflow_bits: Vec<usize>,
-        ) -> Self {
-            let main_gate_config = MainGate::<F>::configure(meta);
-            let range_config =
-                RangeChip::<F>::configure(meta, &main_gate_config, composition_bits, overflow_bits);
-            AggregationConfig {
-                main_gate_config,
-                range_config,
+        pub fn configure(meta: &mut ConstraintSystem<Fr>, params: AggregationConfigParams) -> Self {
+            assert!(
+                params.limb_bits == BITS && params.num_limbs == LIMBS,
+                "For now we fix limb_bits = {}, otherwise change code",
+                BITS
+            );
+            let base_field_config = halo2_ecc::fields::fp::FpConfig::configure(
+                meta,
+                params.strategy,
+                &[params.num_advice],
+                &[params.num_lookup_advice],
+                params.num_fixed,
+                params.lookup_bits,
+                params.limb_bits,
+                params.num_limbs,
+                halo2_base::utils::modulus::<Fq>(),
+                "verifier".to_string(),
+            );
+
+            let instance = meta.instance_column();
+            meta.enable_equality(instance);
+
+            Self {
+                base_field_config,
+                instance,
             }
         }
 
-        pub fn main_gate(&self) -> MainGate<Fr> {
-            MainGate::new(self.main_gate_config.clone())
+        pub fn context<'a>(&self, region: Region<'a, Fr>) -> Context<'a, Fr> {
+            self.base_field_config.new_context(region)
         }
 
-        pub fn range_chip(&self) -> RangeChip<Fr> {
-            RangeChip::new(self.range_config.clone())
+        pub fn range(&self) -> &halo2_base::gates::range::RangeConfig<Fr> {
+            &self.base_field_config.range
         }
 
-        pub fn ecc_chip(&self) -> BaseFieldEccChip {
-            BaseFieldEccChip::new(EccConfig::new(
-                self.range_config.clone(),
-                self.main_gate_config.clone(),
-            ))
+        pub fn ecc_chip(&self) -> halo2_ecc::ecc::BaseFieldEccChip<'_, G1Affine> {
+            EccChip::construct(&self.base_field_config)
         }
     }
 
@@ -416,11 +444,18 @@ mod aggregation {
         }
 
         fn configure(meta: &mut plonk::ConstraintSystem<Fr>) -> Self::Config {
-            AggregationConfig::configure(
-                meta,
-                vec![BITS / LIMBS],
-                Rns::<Fq, Fr, LIMBS, BITS>::construct().overflow_lengths(),
-            )
+            let params = AggregationConfigParams {
+                strategy: FpStrategy::Simple,
+                degree: 20,
+                num_advice: 6,
+                num_lookup_advice: 1,
+                num_fixed: 1,
+                lookup_bits: 19,
+                limb_bits: 88,
+                num_limbs: 3,
+            };
+
+            AggregationConfig::configure(meta, params)
         }
 
         fn synthesize(
@@ -428,41 +463,52 @@ mod aggregation {
             config: Self::Config,
             mut layouter: impl Layouter<Fr>,
         ) -> Result<(), plonk::Error> {
-            let main_gate = config.main_gate();
-            let range_chip = config.range_chip();
+            config.range().load_lookup_table(&mut layouter)?;
 
-            range_chip.load_table(&mut layouter)?;
-
-            let accumulator_limbs = layouter.assign_region(
+            // Need to trick layouter to skip first pass in get shape mode
+            let mut first_pass = true; // assume using simple floor planner
+            let mut assigned_instances: Option<Vec<Cell>> = None;
+            layouter.assign_region(
                 || "",
                 |region| {
-                    let ctx = RegionCtx::new(region, 0);
+                    if first_pass {
+                        first_pass = false;
+                        return Ok(());
+                    }
+                    let ctx = config.context(region);
 
                     let ecc_chip = config.ecc_chip();
                     let loader = Halo2Loader::new(ecc_chip, ctx);
-                    let accumulator = aggregate(&self.svk, &loader, &self.snarks, self.as_proof());
+                    let KzgAccumulator { lhs, rhs } =
+                        aggregate(&self.svk, &loader, &self.snarks, self.as_proof());
 
-                    let accumulator_limbs = [accumulator.lhs, accumulator.rhs]
+                    let lhs = lhs.into_assigned();
+                    let rhs = rhs.into_assigned();
+
+                    config.base_field_config.finalize(&mut loader.ctx_mut())?;
+
+                    let instances: Vec<_> = lhs
+                        .x
+                        .truncation
+                        .limbs
                         .iter()
-                        .map(|ec_point| {
-                            loader.ecc_chip().assign_ec_point_to_limbs(
-                                &mut loader.ctx_mut(),
-                                ec_point.assigned(),
-                            )
-                        })
-                        .collect::<Result<Vec<_>, Error>>()?
-                        .into_iter()
-                        .flatten();
-
-                    Ok(accumulator_limbs)
+                        .chain(lhs.y.truncation.limbs.iter())
+                        .chain(rhs.x.truncation.limbs.iter())
+                        .chain(rhs.y.truncation.limbs.iter())
+                        .map(|assigned| assigned.cell())
+                        .collect();
+                    assigned_instances = Some(instances);
+                    Ok(())
                 },
             )?;
 
-            for (row, limb) in accumulator_limbs.enumerate() {
-                main_gate.expose_public(layouter.namespace(|| ""), limb, row)?;
-            }
-
-            Ok(())
+            Ok({
+                // TODO: use less instances by following Scroll's strategy of keeping only last bit of y coordinate
+                let mut layouter = layouter.namespace(|| "expose");
+                for (i, cell) in assigned_instances.unwrap().into_iter().enumerate() {
+                    layouter.constrain_instance(cell, config.instance, i)?;
+                }
+            })
         }
     }
 }
@@ -595,7 +641,8 @@ fn evm_verify(deployment_code: Vec<u8>, instances: Vec<Vec<Fr>>, proof: Vec<u8>)
 }
 
 fn main() {
-    let params = gen_srs(22);
+    std::env::set_var("VERIFY_CONFIG", "./configs/verify_circuit.config");
+    let params = gen_srs(21);
     let params_app = {
         let mut params = params.clone();
         params.downsize(8);
