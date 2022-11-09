@@ -387,6 +387,22 @@ where
     }
 }
 
+mod halo2_lib {
+    use crate::system::halo2::transcript::halo2::NativeEncoding;
+    use halo2_curves::CurveAffine;
+    use halo2_ecc::ecc::BaseFieldEccChip;
+
+    impl<'a, 'b, C: CurveAffine> NativeEncoding<'a, C> for BaseFieldEccChip<'b, C> {
+        fn encode(
+            &self,
+            _: &mut Self::Context,
+            ec_point: &Self::AssignedEcPoint,
+        ) -> Result<Vec<Self::AssignedScalar>, crate::Error> {
+            Ok(vec![ec_point.x.native.clone(), ec_point.y.native.clone()])
+        }
+    }
+}
+
 mod halo2_wrong {
     use crate::system::halo2::transcript::halo2::NativeEncoding;
     use halo2_curves::CurveAffine;

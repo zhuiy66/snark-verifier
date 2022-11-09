@@ -130,6 +130,254 @@ pub trait EccInstructions<'a, C: CurveAffine>: Clone + Debug {
     ) -> Result<(), Error>;
 }
 
+mod halo2_lib {
+    use crate::{
+        loader::halo2::{Context, EccInstructions, IntegerInstructions},
+        util::{
+            arithmetic::{CurveAffine, Field, FieldExt, PrimeField},
+            Itertools,
+        },
+    };
+    use halo2_base::{
+        self,
+        gates::{flex_gate::FlexGateConfig, GateInstructions, RangeInstructions},
+        AssignedValue,
+        QuantumCell::{Constant, Existing},
+    };
+    use halo2_ecc::{
+        bigint::CRTInteger,
+        ecc::{fixed::FixedEccPoint, BaseFieldEccChip, EccPoint},
+        fields::FieldChip,
+    };
+    use halo2_proofs::{
+        circuit::{Cell, Value},
+        plonk::Error,
+    };
+    use std::ops::Deref;
+
+    type AssignedInteger<C> = CRTInteger<<C as CurveAffine>::ScalarExt>;
+    type AssignedEcPoint<C> = EccPoint<<C as CurveAffine>::ScalarExt, AssignedInteger<C>>;
+
+    impl<'a, F: FieldExt> Context for halo2_base::Context<'a, F> {
+        fn constrain_equal(&mut self, lhs: Cell, rhs: Cell) -> Result<(), Error> {
+            self.region.constrain_equal(lhs, rhs)
+        }
+
+        fn offset(&self) -> usize {
+            *self.advice_rows.values().flatten().max().unwrap()
+        }
+    }
+
+    impl<'a, F: FieldExt> IntegerInstructions<'a, F> for FlexGateConfig<F> {
+        type Context = halo2_base::Context<'a, F>;
+        type AssignedCell = AssignedValue<F>;
+        type AssignedInteger = AssignedValue<F>;
+
+        fn assign_integer(
+            &self,
+            ctx: &mut Self::Context,
+            integer: Value<F>,
+        ) -> Result<Self::AssignedInteger, Error> {
+            Ok(self.assign_witnesses(ctx, vec![integer])?.pop().unwrap())
+        }
+
+        fn assign_constant(
+            &self,
+            ctx: &mut Self::Context,
+            integer: F,
+        ) -> Result<Self::AssignedInteger, Error> {
+            Ok(self
+                .assign_region(ctx, vec![Constant(integer)], vec![], None)?
+                .pop()
+                .unwrap())
+        }
+
+        fn sum_with_coeff_and_const(
+            &self,
+            ctx: &mut Self::Context,
+            values: &[(F, impl Deref<Target = Self::AssignedInteger>)],
+            constant: F,
+        ) -> Result<Self::AssignedInteger, Error> {
+            let mut a = Vec::with_capacity(values.len() + 1);
+            let mut b = Vec::with_capacity(values.len() + 1);
+            if constant != F::zero() {
+                a.push(Constant(F::one()));
+                b.push(Constant(constant));
+            }
+            a.extend(values.iter().map(|(_, a)| Existing(a.deref())));
+            b.extend(values.iter().map(|(c, _)| Constant(*c)));
+            let (_, _, sum) = self.inner_product(ctx, a, b)?;
+            Ok(sum)
+        }
+
+        fn sum_products_with_coeff_and_const(
+            &self,
+            ctx: &mut Self::Context,
+            values: &[(
+                F,
+                impl Deref<Target = Self::AssignedInteger>,
+                impl Deref<Target = Self::AssignedInteger>,
+            )],
+            constant: F,
+        ) -> Result<Self::AssignedInteger, Error> {
+            match values.len() {
+                0 => self.assign_constant(ctx, constant),
+                _ => self.sum_products_with_coeff_and_var(
+                    ctx,
+                    &values
+                        .iter()
+                        .map(|(coeff, lhs, rhs)| (*coeff, Existing(lhs), Existing(rhs)))
+                        .collect_vec(),
+                    &Constant(constant),
+                ),
+            }
+        }
+
+        fn sub(
+            &self,
+            ctx: &mut Self::Context,
+            lhs: &Self::AssignedInteger,
+            rhs: &Self::AssignedInteger,
+        ) -> Result<Self::AssignedInteger, Error> {
+            GateInstructions::sub(self, ctx, &Existing(lhs), &Existing(rhs))
+        }
+
+        fn neg(
+            &self,
+            ctx: &mut Self::Context,
+            value: &Self::AssignedInteger,
+        ) -> Result<Self::AssignedInteger, Error> {
+            GateInstructions::neg(self, ctx, &Existing(value))
+        }
+
+        fn invert(
+            &self,
+            ctx: &mut Self::Context,
+            value: &Self::AssignedInteger,
+        ) -> Result<Self::AssignedInteger, Error> {
+            let is_zero = self.is_zero(ctx, value)?;
+            self.assert_is_const(ctx, &is_zero, F::zero())?;
+            GateInstructions::div_unsafe(self, ctx, &Constant(F::one()), &Existing(value))
+        }
+
+        fn assert_equal(
+            &self,
+            ctx: &mut Self::Context,
+            lhs: &Self::AssignedInteger,
+            rhs: &Self::AssignedInteger,
+        ) -> Result<(), Error> {
+            ctx.region.constrain_equal(lhs.cell(), rhs.cell())
+        }
+    }
+
+    const WINDOW_SIZE: usize = 4;
+
+    impl<'a, 'b, C: CurveAffine> EccInstructions<'a, C> for BaseFieldEccChip<'b, C> {
+        type Context = halo2_base::Context<'a, C::Scalar>;
+        type ScalarChip = FlexGateConfig<C::Scalar>;
+        type AssignedCell = AssignedValue<C::Scalar>;
+        type AssignedScalar = AssignedValue<C::Scalar>;
+        type AssignedEcPoint = AssignedEcPoint<C>;
+
+        fn scalar_chip(&self) -> &Self::ScalarChip {
+            self.field_chip.range().gate()
+        }
+
+        fn assign_constant(
+            &self,
+            ctx: &mut Self::Context,
+            ec_point: C,
+        ) -> Result<Self::AssignedEcPoint, Error> {
+            let fixed = FixedEccPoint::<C::Scalar, C>::from_g1(
+                &ec_point,
+                self.field_chip.num_limbs,
+                self.field_chip.limb_bits,
+            );
+            FixedEccPoint::assign(fixed, self.field_chip, ctx)
+        }
+
+        fn assign_point(
+            &self,
+            ctx: &mut Self::Context,
+            ec_point: Value<C>,
+        ) -> Result<Self::AssignedEcPoint, Error> {
+            let assigned = self.assign_point(ctx, ec_point)?;
+            let is_on_curve_or_infinity = self.is_on_curve_or_infinity::<C>(ctx, &assigned)?;
+            self.field_chip.range.gate.assert_is_const(
+                ctx,
+                &is_on_curve_or_infinity,
+                C::Scalar::one(),
+            )?;
+            Ok(assigned)
+        }
+
+        fn sum_with_const(
+            &self,
+            ctx: &mut Self::Context,
+            values: &[impl Deref<Target = Self::AssignedEcPoint>],
+            constant: C,
+        ) -> Result<Self::AssignedEcPoint, Error> {
+            if bool::from(constant.is_identity()) {
+                self.sum::<C>(ctx, values.iter().map(Deref::deref))
+            } else {
+                let constant = EccInstructions::<C>::assign_constant(self, ctx, constant)?;
+                self.sum::<C>(ctx, values.iter().map(Deref::deref).chain(Some(&constant)))
+            }
+        }
+
+        fn fixed_base_msm(
+            &mut self,
+            ctx: &mut Self::Context,
+            pairs: &[(impl Deref<Target = Self::AssignedScalar>, C)],
+        ) -> Result<Self::AssignedEcPoint, Error> {
+            let (scalars, points) = pairs
+                .iter()
+                .map(|(scalar, base)| (scalar.deref().clone(), *base))
+                .unzip::<_, _, Vec<_>, Vec<_>>();
+            BaseFieldEccChip::<C>::fixed_base_msm::<C>(
+                self,
+                ctx,
+                &points,
+                &scalars.into_iter().map(|scalar| vec![scalar]).collect(),
+                <C::Scalar as PrimeField>::NUM_BITS as usize,
+                0,
+                WINDOW_SIZE,
+            )
+        }
+
+        fn variable_base_msm(
+            &mut self,
+            ctx: &mut Self::Context,
+            pairs: &[(
+                impl Deref<Target = Self::AssignedScalar>,
+                impl Deref<Target = Self::AssignedEcPoint>,
+            )],
+        ) -> Result<Self::AssignedEcPoint, Error> {
+            assert!(!pairs.is_empty());
+            let (scalars, bases) = pairs
+                .iter()
+                .map(|(scalar, base)| (scalar.deref().clone(), base.deref().clone()))
+                .unzip::<_, _, Vec<_>, Vec<_>>();
+            self.multi_scalar_mult::<C>(
+                ctx,
+                &bases,
+                &scalars.into_iter().map(|scalar| vec![scalar]).collect(),
+                C::Scalar::NUM_BITS as usize,
+                WINDOW_SIZE,
+            )
+        }
+
+        fn assert_equal(
+            &self,
+            ctx: &mut Self::Context,
+            lhs: &Self::AssignedEcPoint,
+            rhs: &Self::AssignedEcPoint,
+        ) -> Result<(), Error> {
+            self.assert_equal(ctx, lhs, rhs)
+        }
+    }
+}
+
 mod halo2_wrong {
     use crate::{
         loader::halo2::{Context, EccInstructions, IntegerInstructions},

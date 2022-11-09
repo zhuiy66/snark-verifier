@@ -137,7 +137,7 @@ pub use halo2::LimbsEncodingInstructions;
 #[cfg(feature = "loader_halo2")]
 mod halo2 {
     use crate::{
-        loader::halo2::{EccInstructions, Halo2Loader, Scalar, Valuetools},
+        loader::halo2::{Context, EccInstructions, Halo2Loader, Scalar, Valuetools},
         pcs::{
             kzg::{KzgAccumulator, LimbsEncoding},
             AccumulatorEncoding, PolynomialCommitmentScheme,
@@ -214,6 +214,52 @@ mod halo2 {
             });
 
             Ok(KzgAccumulator::new(lhs, rhs))
+        }
+    }
+
+    mod halo2_lib {
+        use super::*;
+        use halo2_ecc::ecc::BaseFieldEccChip;
+
+        impl<'a, 'b, C: CurveAffine, const LIMBS: usize, const BITS: usize>
+            LimbsEncodingInstructions<'a, C, LIMBS, BITS> for BaseFieldEccChip<'b, C>
+        {
+            fn assign_ec_point_from_limbs(
+                &self,
+                ctx: &mut Self::Context,
+                limbs: &[impl Deref<Target = Self::AssignedScalar>],
+            ) -> Result<Self::AssignedEcPoint, plonk::Error> {
+                assert_eq!(limbs.len(), 2 * LIMBS);
+
+                let ec_point = self.assign_point(
+                    ctx,
+                    ec_point_from_limbs::<C, LIMBS, BITS>(
+                        &limbs.iter().map(|limb| limb.value()).collect_vec(),
+                    ),
+                )?;
+
+                for (src, dst) in limbs.iter().zip_eq(
+                    iter::empty()
+                        .chain(&ec_point.x.truncation.limbs)
+                        .chain(&ec_point.y.truncation.limbs),
+                ) {
+                    ctx.constrain_equal(src.cell(), dst.cell())?;
+                }
+
+                Ok(ec_point)
+            }
+
+            fn assign_ec_point_to_limbs(
+                &self,
+                _: &mut Self::Context,
+                ec_point: impl Deref<Target = Self::AssignedEcPoint>,
+            ) -> Result<Vec<Self::AssignedCell>, plonk::Error> {
+                Ok(iter::empty()
+                    .chain(ec_point.deref().x.truncation.limbs.iter())
+                    .chain(ec_point.deref().y.truncation.limbs.iter())
+                    .cloned()
+                    .collect())
+            }
         }
     }
 
