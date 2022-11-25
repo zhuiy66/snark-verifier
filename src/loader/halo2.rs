@@ -9,7 +9,7 @@ mod shim;
 pub(crate) mod test;
 
 pub use loader::{EcPoint, Halo2Loader, Scalar};
-pub use shim::{Context, EccInstructions, IntegerInstructions};
+pub use shim::{Context, EccInstructions, IntegerInstructions, NativeEncoding};
 pub use util::Valuetools;
 
 pub use halo2_wrong_ecc;

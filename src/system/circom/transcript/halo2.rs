@@ -17,7 +17,6 @@ use std::{
     io::{self, Read, Write},
     rc::Rc,
 };
-
 pub struct PoseidonTranscript<
     C,
     L,
@@ -33,6 +32,7 @@ pub struct PoseidonTranscript<
     loader: L,
     stream: S,
     buf: Poseidon<C::Scalar, <L as ScalarLoader<C::Scalar>>::LoadedScalar, T, RATE>,
+    adjacent_challenge: Option<L::LoadedScalar>,
 }
 
 impl<'a, C, R, EccChip, const T: usize, const RATE: usize, const R_F: usize, const R_P: usize>
@@ -48,6 +48,7 @@ where
             loader: loader.clone(),
             stream,
             buf,
+            adjacent_challenge: None,
         }
     }
 }
@@ -65,15 +66,22 @@ where
     }
 
     fn squeeze_challenge(&mut self) -> Scalar<'a, C, EccChip> {
-        self.buf.squeeze()
+        if self.adjacent_challenge.is_some() {
+            self.buf.update(&[self.adjacent_challenge.take().unwrap()]);
+        }
+        let challenge = self.buf.squeeze();
+        self.adjacent_challenge = Some(challenge.clone());
+        challenge
     }
 
     fn common_scalar(&mut self, scalar: &Scalar<'a, C, EccChip>) -> Result<(), Error> {
+        self.adjacent_challenge = None;
         self.buf.update(&[scalar.clone()]);
         Ok(())
     }
 
     fn common_ec_point(&mut self, ec_point: &EcPoint<'a, C, EccChip>) -> Result<(), Error> {
+        self.adjacent_challenge = None;
         let encoded = self
             .loader
             .ecc_chip()
@@ -142,6 +150,7 @@ impl<C: CurveAffine, S, const T: usize, const RATE: usize, const R_F: usize, con
             loader: NativeLoader,
             stream,
             buf: Poseidon::new(&NativeLoader, R_F, R_P),
+            adjacent_challenge: None,
         }
     }
 }
@@ -154,15 +163,22 @@ impl<C: CurveAffine, S, const T: usize, const RATE: usize, const R_F: usize, con
     }
 
     fn squeeze_challenge(&mut self) -> C::Scalar {
-        self.buf.squeeze()
+        if self.adjacent_challenge.is_some() {
+            self.buf.update(&[self.adjacent_challenge.take().unwrap()]);
+        }
+        let challenge = self.buf.squeeze();
+        self.adjacent_challenge = Some(challenge);
+        challenge
     }
 
     fn common_scalar(&mut self, scalar: &C::Scalar) -> Result<(), Error> {
+        self.adjacent_challenge = None;
         self.buf.update(&[*scalar]);
         Ok(())
     }
 
     fn common_ec_point(&mut self, ec_point: &C) -> Result<(), Error> {
+        self.adjacent_challenge = None;
         let encoded: Vec<_> = Option::from(ec_point.coordinates().map(|coordinates| {
             [coordinates.x(), coordinates.y()]
                 .into_iter()

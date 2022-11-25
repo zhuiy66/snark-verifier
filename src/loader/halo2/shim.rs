@@ -130,9 +130,21 @@ pub trait EccInstructions<'a, C: CurveAffine>: Clone + Debug {
     ) -> Result<(), Error>;
 }
 
+/// Encoding that encodes elliptic curve point into native field elements.
+pub trait NativeEncoding<'a, C>: EccInstructions<'a, C>
+where
+    C: CurveAffine,
+{
+    fn encode(
+        &self,
+        ctx: &mut Self::Context,
+        ec_point: &Self::AssignedEcPoint,
+    ) -> Result<Vec<Self::AssignedScalar>, Error>;
+}
+
 mod halo2_wrong {
     use crate::{
-        loader::halo2::{Context, EccInstructions, IntegerInstructions},
+        loader::halo2::{Context, EccInstructions, IntegerInstructions, NativeEncoding},
         util::{
             arithmetic::{CurveAffine, FieldExt, Group},
             Itertools,
@@ -441,6 +453,21 @@ mod halo2_wrong {
             });
             self.assert_equal(ctx, lhs, rhs)
                 .and(eq.then_some(()).ok_or(Error::Synthesis))
+        }
+    }
+
+    impl<'a, C: CurveAffine, const LIMBS: usize, const BITS: usize> NativeEncoding<'a, C>
+        for BaseFieldEccChip<C, LIMBS, BITS>
+    {
+        fn encode(
+            &self,
+            _: &mut Self::Context,
+            ec_point: &Self::AssignedEcPoint,
+        ) -> Result<Vec<AssignedCell<C::Scalar, C::Scalar>>, Error> {
+            Ok(vec![
+                ec_point.x().native().clone(),
+                ec_point.y().native().clone(),
+            ])
         }
     }
 }

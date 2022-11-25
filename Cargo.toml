@@ -16,6 +16,10 @@ halo2_curves = { git = "https://github.com/privacy-scaling-explorations/halo2cur
 # parallel
 rayon = { version = "1.5.3", optional = true }
 
+# system_circom
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0.85", optional = true }
+
 # system_halo2
 halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2", tag = "v2022_10_22", optional = true }
 
@@ -42,13 +46,14 @@ crossterm = { version = "0.25" }
 tui = { version = "0.19", default-features = false, features = ["crossterm"] }
 
 [features]
-default = ["loader_evm", "loader_halo2", "system_halo2"]
+default = ["loader_evm", "loader_halo2", "system_circom", "system_halo2"]
 
 parallel = ["dep:rayon"]
 
 loader_evm = ["dep:bytes", "dep:sha3", "dep:primitive-types", "dep:rlp", "dep:revm"]
 loader_halo2 = ["dep:halo2_proofs", "dep:halo2_wrong_ecc", "dep:poseidon"]
 
+system_circom = ["dep:serde", "dep:serde_json"]
 system_halo2 = ["dep:halo2_proofs"]
 
 [[example]]
