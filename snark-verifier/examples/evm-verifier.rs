@@ -155,8 +155,8 @@ fn gen_srs(k: u32) -> ParamsKZG<Bn256> {
 }
 
 fn gen_pk<C: Circuit<Fr>>(params: &ParamsKZG<Bn256>, circuit: &C) -> ProvingKey<G1Affine> {
-    let vk = keygen_vk(params, circuit).unwrap();
-    keygen_pk(params, vk, circuit).unwrap()
+    let vk = keygen_vk::<_, _, _, true>(params, circuit).unwrap();
+    keygen_pk::<_, _, _, true>(params, vk, circuit).unwrap()
 }
 
 fn gen_proof<C: Circuit<Fr>>(
@@ -165,7 +165,7 @@ fn gen_proof<C: Circuit<Fr>>(
     circuit: C,
     instances: Vec<Vec<Fr>>,
 ) -> Vec<u8> {
-    MockProver::run(params.k(), &circuit, instances.clone())
+    MockProver::run::<_, true>(params.k(), &circuit, instances.clone())
         .unwrap()
         .assert_satisfied();
 
@@ -175,7 +175,15 @@ fn gen_proof<C: Circuit<Fr>>(
         .collect_vec();
     let proof = {
         let mut transcript = TranscriptWriterBuffer::<_, G1Affine, _>::init(Vec::new());
-        create_proof::<KZGCommitmentScheme<Bn256>, ProverGWC<_>, _, _, EvmTranscript<_, _, _, _>, _>(
+        create_proof::<
+            KZGCommitmentScheme<Bn256>,
+            ProverGWC<_>,
+            _,
+            _,
+            EvmTranscript<_, _, _, _>,
+            _,
+            true,
+        >(
             params,
             pk,
             &[circuit],
@@ -190,7 +198,7 @@ fn gen_proof<C: Circuit<Fr>>(
     let accept = {
         let mut transcript = TranscriptReadBuffer::<_, G1Affine, _>::init(proof.as_slice());
         VerificationStrategy::<_, VerifierGWC<_>>::finalize(
-            verify_proof::<_, VerifierGWC<_>, _, EvmTranscript<_, _, _, _>, _>(
+            verify_proof::<_, VerifierGWC<_>, _, EvmTranscript<_, _, _, _>, _, true>(
                 params.verifier_params(),
                 pk.get_vk(),
                 AccumulatorStrategy::new(params.verifier_params()),

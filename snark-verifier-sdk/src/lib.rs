@@ -118,7 +118,7 @@ pub trait CircuitExt<F: Field>: Circuit<F> {
     }
 }
 
-pub fn read_pk<C: Circuit<Fr>>(
+pub fn read_pk<C: Circuit<Fr>, const ZK: bool>(
     path: &Path,
     #[cfg(feature = "halo2_circuit_params")] param: C::Params,
 ) -> io::Result<ProvingKey<G1Affine>> {
@@ -133,7 +133,7 @@ pub fn read_pk<C: Circuit<Fr>>(
     // let initial_buffer_size = f.metadata().map(|m| m.len() as usize + 1).unwrap_or(0);
     // let mut bufreader = Vec::with_capacity(initial_buffer_size);
     // f.read_to_end(&mut bufreader)?;
-    let pk = ProvingKey::read::<_, C>(
+    let pk = ProvingKey::read::<_, C, ZK>(
         &mut bufreader,
         SerdeFormat::RawBytes,
         #[cfg(feature = "halo2_circuit_params")]
@@ -148,13 +148,13 @@ pub fn read_pk<C: Circuit<Fr>>(
 }
 
 #[allow(clippy::let_and_return)]
-pub fn gen_pk<C: Circuit<Fr>>(
+pub fn gen_pk<C: Circuit<Fr>, const ZK: bool>(
     params: &ParamsKZG<Bn256>, // TODO: read pk without params
     circuit: &C,
     path: Option<&Path>,
 ) -> ProvingKey<G1Affine> {
     if let Some(path) = path {
-        if let Ok(pk) = read_pk::<C>(
+        if let Ok(pk) = read_pk::<C, ZK>(
             path,
             #[cfg(feature = "halo2_circuit_params")]
             circuit.params(),
@@ -165,8 +165,8 @@ pub fn gen_pk<C: Circuit<Fr>>(
     #[cfg(feature = "display")]
     let pk_time = start_timer!(|| "Generating vkey & pkey");
 
-    let vk = keygen_vk(params, circuit).unwrap();
-    let pk = keygen_pk(params, vk, circuit).unwrap();
+    let vk = keygen_vk::<_, _, _, ZK>(params, circuit).unwrap();
+    let pk = keygen_pk::<_, _, _, ZK>(params, vk, circuit).unwrap();
 
     #[cfg(feature = "display")]
     end_timer!(pk_time);

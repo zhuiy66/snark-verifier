@@ -17,6 +17,8 @@ use snark_verifier_sdk::{
 };
 use std::path::Path;
 
+const ZK: bool = true;
+
 mod application {
     use super::halo2_curves::bn256::Fr;
     use halo2_proofs::{
@@ -155,8 +157,8 @@ mod application {
 fn gen_application_snark(params: &ParamsKZG<Bn256>) -> Snark {
     let circuit = application::StandardPlonk::rand(OsRng);
 
-    let pk = gen_pk(params, &circuit, Some(Path::new("./benches/app.pk")));
-    gen_snark_shplonk(params, &pk, circuit, None::<&str>)
+    let pk = gen_pk::<_, ZK>(params, &circuit, Some(Path::new("./benches/app.pk")));
+    gen_snark_shplonk::<_, ZK>(params, &pk, circuit, None::<&str>)
 }
 
 fn bench(c: &mut Criterion) {
@@ -167,7 +169,7 @@ fn bench(c: &mut Criterion) {
     let agg_circuit = AggregationCircuit::<SHPLONK>::new(&params, snarks.clone());
 
     let start0 = start_timer!(|| "gen vk & pk");
-    let pk = gen_pk(&params, &agg_circuit, Some(Path::new("./benches/agg.pk")));
+    let pk = gen_pk::<_, ZK>(&params, &agg_circuit, Some(Path::new("./benches/agg.pk")));
     end_timer!(start0);
 
     let mut group = c.benchmark_group("plonk-prover");
@@ -178,7 +180,7 @@ fn bench(c: &mut Criterion) {
         |b, &(params, pk, snarks)| {
             b.iter(|| {
                 let agg_circuit = AggregationCircuit::<SHPLONK>::new(params, snarks.clone());
-                gen_snark_shplonk(params, pk, agg_circuit, None::<&str>)
+                gen_snark_shplonk::<_, ZK>(params, pk, agg_circuit, None::<&str>)
             })
         },
     );

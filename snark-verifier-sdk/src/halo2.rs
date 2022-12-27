@@ -112,7 +112,7 @@ pub fn gen_srs(k: u32) -> ParamsKZG<Bn256> {
 /// Generates a native proof using either SHPLONK or GWC proving method. Uses Poseidon for Fiat-Shamir.
 ///
 /// Caches the instances and proof if `path = Some(instance_path, proof_path)` is specified.
-pub fn gen_proof<'params, C, P, V>(
+pub fn gen_proof<'params, C, P, V, const ZK: bool>(
     // TODO: pass Option<&'params ParamsKZG<Bn256>> but hard to get lifetimes to work with `Cow`
     params: &'params ParamsKZG<Bn256>,
     pk: &ProvingKey<G1Affine>,
@@ -153,8 +153,15 @@ where
     let mut transcript =
         PoseidonTranscript::<NativeLoader, _>::from_spec(vec![], POSEIDON_SPEC.clone());
     let rng = StdRng::from_entropy();
-    create_proof::<_, P, _, _, _, _>(params, pk, &[circuit], &[&instances], rng, &mut transcript)
-        .unwrap();
+    create_proof::<_, P, _, _, _, _, ZK>(
+        params,
+        pk,
+        &[circuit],
+        &[&instances],
+        rng,
+        &mut transcript,
+    )
+    .unwrap();
     let proof = transcript.finalize();
 
     #[cfg(feature = "display")]
@@ -165,7 +172,7 @@ where
         let mut transcript_read =
             PoseidonTranscript::<NativeLoader, &[u8]>::from_spec(&proof[..], POSEIDON_SPEC.clone());
         VerificationStrategy::<_, V>::finalize(
-            verify_proof::<_, V, _, _, _>(
+            verify_proof::<_, V, _, _, _, ZK>(
                 params.verifier_params(),
                 pk.get_vk(),
                 AccumulatorStrategy::new(params.verifier_params()),
@@ -187,34 +194,34 @@ where
 /// Generates a native proof using original Plonk (GWC '19) multi-open scheme. Uses Poseidon for Fiat-Shamir.
 ///
 /// Caches the instances and proof if `path = Some(instance_path, proof_path)` is specified.
-pub fn gen_proof_gwc<C: Circuit<Fr>>(
+pub fn gen_proof_gwc<C: Circuit<Fr>, const ZK: bool>(
     params: &ParamsKZG<Bn256>,
     pk: &ProvingKey<G1Affine>,
     circuit: C,
     instances: Vec<Vec<Fr>>,
     path: Option<(&Path, &Path)>,
 ) -> Vec<u8> {
-    gen_proof::<C, ProverGWC<_>, VerifierGWC<_>>(params, pk, circuit, instances, path)
+    gen_proof::<C, ProverGWC<_>, VerifierGWC<_>, ZK>(params, pk, circuit, instances, path)
 }
 
 /// Generates a native proof using SHPLONK multi-open scheme. Uses Poseidon for Fiat-Shamir.
 ///
 /// Caches the instances and proof if `path` is specified.
-pub fn gen_proof_shplonk<C: Circuit<Fr>>(
+pub fn gen_proof_shplonk<C: Circuit<Fr>, const ZK: bool>(
     params: &ParamsKZG<Bn256>,
     pk: &ProvingKey<G1Affine>,
     circuit: C,
     instances: Vec<Vec<Fr>>,
     path: Option<(&Path, &Path)>,
 ) -> Vec<u8> {
-    gen_proof::<C, ProverSHPLONK<_>, VerifierSHPLONK<_>>(params, pk, circuit, instances, path)
+    gen_proof::<C, ProverSHPLONK<_>, VerifierSHPLONK<_>, ZK>(params, pk, circuit, instances, path)
 }
 
 /// Generates a SNARK using either SHPLONK or GWC multi-open scheme. Uses Poseidon for Fiat-Shamir.
 ///
 /// Tries to first deserialize from / later serialize the entire SNARK into `path` if specified.
 /// Serialization is done using `bincode`.
-pub fn gen_snark<'params, ConcreteCircuit, P, V>(
+pub fn gen_snark<'params, ConcreteCircuit, P, V, const ZK: bool>(
     params: &'params ParamsKZG<Bn256>,
     pk: &ProvingKey<G1Affine>,
     circuit: ConcreteCircuit,
@@ -246,7 +253,7 @@ where
 
     let instances = circuit.instances();
     #[cfg(feature = "derive_serde")]
-    let proof = gen_proof::<ConcreteCircuit, P, V>(
+    let proof = gen_proof::<ConcreteCircuit, P, V, ZK>(
         params,
         pk,
         circuit,
@@ -284,26 +291,28 @@ where
 ///
 /// Tries to first deserialize from / later serialize the entire SNARK into `path` if specified.
 /// Serialization is done using `bincode`.
-pub fn gen_snark_gwc<ConcreteCircuit: CircuitExt<Fr>>(
+pub fn gen_snark_gwc<ConcreteCircuit: CircuitExt<Fr>, const ZK: bool>(
     params: &ParamsKZG<Bn256>,
     pk: &ProvingKey<G1Affine>,
     circuit: ConcreteCircuit,
     path: Option<impl AsRef<Path>>,
 ) -> Snark {
-    gen_snark::<ConcreteCircuit, ProverGWC<_>, VerifierGWC<_>>(params, pk, circuit, path)
+    gen_snark::<ConcreteCircuit, ProverGWC<_>, VerifierGWC<_>, ZK>(params, pk, circuit, path)
 }
 
 /// Generates a SNARK using SHPLONK multi-open scheme. Uses Poseidon for Fiat-Shamir.
 ///
 /// Tries to first deserialize from / later serialize the entire SNARK into `path` if specified.
 /// Serialization is done using `bincode`.
-pub fn gen_snark_shplonk<ConcreteCircuit: CircuitExt<Fr>>(
+pub fn gen_snark_shplonk<ConcreteCircuit: CircuitExt<Fr>, const ZK: bool>(
     params: &ParamsKZG<Bn256>,
     pk: &ProvingKey<G1Affine>,
     circuit: ConcreteCircuit,
     path: Option<impl AsRef<Path>>,
 ) -> Snark {
-    gen_snark::<ConcreteCircuit, ProverSHPLONK<_>, VerifierSHPLONK<_>>(params, pk, circuit, path)
+    gen_snark::<ConcreteCircuit, ProverSHPLONK<_>, VerifierSHPLONK<_>, ZK>(
+        params, pk, circuit, path,
+    )
 }
 
 /// Tries to deserialize a SNARK from the specified `path` using `bincode`.

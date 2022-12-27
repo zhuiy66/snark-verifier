@@ -59,7 +59,7 @@ where
     R: RngCore,
 {
     for (circuit, instances) in circuits.iter().zip(instances.iter()) {
-        MockProver::run(
+        MockProver::run::<_, true>(
             params.k(),
             circuit,
             instances.iter().map(|instance| instance.to_vec()).collect(),
@@ -70,7 +70,7 @@ where
 
     let proof = {
         let mut transcript = TW::init(Vec::new());
-        create_proof::<S, P, _, _, _, _>(
+        create_proof::<S, P, _, _, _, _, true>(
             params,
             pk,
             circuits,
@@ -86,7 +86,14 @@ where
         let params = params.verifier_params();
         let strategy = VS::new(params);
         let mut transcript = TR::init(Cursor::new(proof.clone()));
-        verify_proof(params, pk.get_vk(), strategy, instances, &mut transcript).unwrap()
+        verify_proof::<_, _, _, _, _, true>(
+            params,
+            pk.get_vk(),
+            strategy,
+            instances,
+            &mut transcript,
+        )
+        .unwrap()
     };
 
     finalize(proof, output)
@@ -108,8 +115,8 @@ macro_rules! halo2_prepare {
             .collect_vec();
 
         let pk = if $config.zk {
-            let vk = keygen_vk(&params, &circuits[0]).unwrap();
-            let pk = keygen_pk(&params, vk, &circuits[0]).unwrap();
+            let vk = keygen_vk::<_, _, _, true>(&params, &circuits[0]).unwrap();
+            let pk = keygen_pk::<_, _, _, true>(&params, vk, &circuits[0]).unwrap();
             pk
         } else {
             // TODO: Re-enable optional-zk when it's merged in pse/halo2.

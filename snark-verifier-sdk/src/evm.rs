@@ -33,7 +33,7 @@ use snark_verifier::{
 use std::{fs, io, path::Path, rc::Rc};
 
 /// Generates a proof for evm verification using either SHPLONK or GWC proving method. Uses Keccak for Fiat-Shamir.
-pub fn gen_evm_proof<'params, C, P, V>(
+pub fn gen_evm_proof<'params, C, P, V, const ZK: bool>(
     params: &'params ParamsKZG<Bn256>,
     pk: &'params ProvingKey<G1Affine>,
     circuit: C,
@@ -59,7 +59,7 @@ where
     let rng = StdRng::from_entropy();
     let proof = {
         let mut transcript = TranscriptWriterBuffer::<_, G1Affine, _>::init(Vec::new());
-        create_proof::<KZGCommitmentScheme<Bn256>, P, _, _, EvmTranscript<_, _, _, _>, _>(
+        create_proof::<KZGCommitmentScheme<Bn256>, P, _, _, EvmTranscript<_, _, _, _>, _, ZK>(
             params,
             pk,
             &[circuit],
@@ -76,7 +76,7 @@ where
     let accept = {
         let mut transcript = TranscriptReadBuffer::<_, G1Affine, _>::init(proof.as_slice());
         VerificationStrategy::<_, V>::finalize(
-            verify_proof::<_, V, _, EvmTranscript<_, _, _, _>, _>(
+            verify_proof::<_, V, _, EvmTranscript<_, _, _, _>, _, ZK>(
                 params.verifier_params(),
                 pk.get_vk(),
                 AccumulatorStrategy::new(params.verifier_params()),
@@ -91,22 +91,22 @@ where
     proof
 }
 
-pub fn gen_evm_proof_gwc<'params, C: Circuit<Fr>>(
+pub fn gen_evm_proof_gwc<'params, C: Circuit<Fr>, const ZK: bool>(
     params: &'params ParamsKZG<Bn256>,
     pk: &'params ProvingKey<G1Affine>,
     circuit: C,
     instances: Vec<Vec<Fr>>,
 ) -> Vec<u8> {
-    gen_evm_proof::<C, ProverGWC<_>, VerifierGWC<_>>(params, pk, circuit, instances)
+    gen_evm_proof::<C, ProverGWC<_>, VerifierGWC<_>, ZK>(params, pk, circuit, instances)
 }
 
-pub fn gen_evm_proof_shplonk<'params, C: Circuit<Fr>>(
+pub fn gen_evm_proof_shplonk<'params, C: Circuit<Fr>, const ZK: bool>(
     params: &'params ParamsKZG<Bn256>,
     pk: &'params ProvingKey<G1Affine>,
     circuit: C,
     instances: Vec<Vec<Fr>>,
 ) -> Vec<u8> {
-    gen_evm_proof::<C, ProverSHPLONK<_>, VerifierSHPLONK<_>>(params, pk, circuit, instances)
+    gen_evm_proof::<C, ProverSHPLONK<_>, VerifierSHPLONK<_>, ZK>(params, pk, circuit, instances)
 }
 
 pub fn gen_evm_verifier<C, AS>(

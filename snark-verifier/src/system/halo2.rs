@@ -215,7 +215,11 @@ impl<'a, F: PrimeField> Polynomials<'a, F> {
         num_proof: usize,
     ) -> Self {
         // TODO: Re-enable optional-zk when it's merged in pse/halo2.
-        let degree = if zk { cs.degree() } else { unimplemented!() };
+        let degree = if zk {
+            cs.degree::<true>()
+        } else {
+            unimplemented!()
+        };
         let permutation_chunk_size = if zk || cs.permutation().get_columns().len() >= degree {
             degree - 2
         } else {
@@ -522,7 +526,7 @@ impl<'a, F: PrimeField> Polynomials<'a, F> {
     }
 
     fn rotation_last(&self) -> Rotation {
-        Rotation(-((self.cs.blinding_factors() + 1) as i32))
+        Rotation(-((self.cs.blinding_factors::<true>() + 1) as i32))
     }
 
     fn l_last(&self) -> Expression<F> {

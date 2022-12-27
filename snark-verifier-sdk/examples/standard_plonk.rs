@@ -13,6 +13,8 @@ use snark_verifier_sdk::{
 use snark_verifier_sdk::{CircuitExt, SHPLONK};
 use std::path::Path;
 
+const ZK: bool = true;
+
 mod application {
     use super::halo2_curves::bn256::Fr;
     use halo2_proofs::{
@@ -151,8 +153,8 @@ mod application {
 fn gen_application_snark(params: &ParamsKZG<Bn256>) -> Snark {
     let circuit = application::StandardPlonk::rand(OsRng);
 
-    let pk = gen_pk(params, &circuit, Some(Path::new("./examples/app.pk")));
-    gen_snark_shplonk(params, &pk, circuit, None::<&str>)
+    let pk = gen_pk::<_, ZK>(params, &circuit, Some(Path::new("./examples/app.pk")));
+    gen_snark_shplonk::<_, ZK>(params, &pk, circuit, None::<&str>)
 }
 
 fn main() {
@@ -163,7 +165,7 @@ fn main() {
     let agg_circuit = AggregationCircuit::<SHPLONK>::new(&params, snarks);
 
     let start0 = start_timer!(|| "gen vk & pk");
-    let pk = gen_pk(
+    let pk = gen_pk::<_, ZK>(
         &params,
         &agg_circuit.without_witnesses(),
         Some(Path::new("./examples/agg.pk")),
@@ -171,7 +173,7 @@ fn main() {
     end_timer!(start0);
 
     std::fs::remove_file("./examples/agg.snark").unwrap_or_default();
-    let _snark = gen_snark_shplonk(
+    let _snark = gen_snark_shplonk::<_, ZK>(
         &params,
         &pk,
         agg_circuit.clone(),
@@ -183,7 +185,8 @@ fn main() {
         // do one more time to verify
         let num_instances = agg_circuit.num_instance();
         let instances = agg_circuit.instances();
-        let proof_calldata = gen_evm_proof_shplonk(&params, &pk, agg_circuit, instances.clone());
+        let proof_calldata =
+            gen_evm_proof_shplonk::<_, ZK>(&params, &pk, agg_circuit, instances.clone());
 
         let deployment_code = gen_evm_verifier_shplonk::<AggregationCircuit<SHPLONK>>(
             &params,
