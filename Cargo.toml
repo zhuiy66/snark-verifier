@@ -3,3 +3,6 @@ members = [
     "snark-verifier",
     "snark-verifier-sdk"
 ]
+
+[patch."https://github.com/privacy-scaling-explorations/halo2"]
+halo2_proofs = { git = "https://github.com/han0110/halo2", branch = "feature/logup", optional = true }
